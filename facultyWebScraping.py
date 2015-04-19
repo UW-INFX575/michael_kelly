@@ -4,7 +4,26 @@ import re
 import pandas as pd
 import csv
 
-# Student
+'''
+This script scrapes faculty data from Azusa Pacific University (http://www.apu.edu/clas/faculty)
+and Georgian Court University (http://www.georgian.edu/faculty/list.htm).
+
+Produces a CSV file with the following fields for each professor:
+    firstname 
+    lastname 
+    university = current university
+    department = current department
+    grad_school = university where he/she earned highest degree
+    grad_school_department = in which department degree was earned
+    title = title at current university (e.g. Assistant Professor)
+    university_code = identifier code for current university
+    grad_school_code = identifier code for grad school university
+    highest_degree = highest degree earned (e.g. Ph.D.)
+    student = student who collected the data (i.e. script author)
+    grad_year = year that professor earned highest degree
+'''
+
+# STUDENT
 student = 'Mike Kelly'
 
 # Load schools data for reference and matching
@@ -29,11 +48,11 @@ def getFacultyAPU(professors):
     urls = map(lambda x: rootURL + x, links)
 
     # Go through each faculty page
-    for i, url in enumerate(urls[1:10]):
-        facultyPage = requests.get(url[1:10])
+    for i, url in enumerate(urls):
+        facultyPage = requests.get(url)
         facultyTree = html.fromstring(facultyPage.text)
         
-        # Name
+        # FIRSTNAME, LASTNAME
         fullTitle = facultyTree.xpath('//*[@id="template-page-content"]/div/div[1]/div[@class="contact"]/h2/text()')
         fullTitle = [x.strip() for x in fullTitle[0].split(',')]
         
@@ -44,14 +63,14 @@ def getFacultyAPU(professors):
         firstname = name[0]
         lastname = name[-1]
         
-        # Title
-        title = titles[i].split(',', 1)[0]
+        # TITLE
+        title = titles[i].split(',', 1)[0] # Faculty title comes before comma
         
-        # University
+        # UNVIVERSITY
         university = 'Azusa Pacific University'
-        university_code = None
+        university_code = None # code for this university not yet created
         
-        # Department
+        # DEPARTMENT
         department = facultyTree.xpath('//*[@id="template-page-content"]/div/div[1]/div[2]/text()')
         try:
             # Try to get department from below name
@@ -62,24 +81,25 @@ def getFacultyAPU(professors):
             department = facultyTree.xpath('//*[@id="template-page-content"]/div/div[2]/div[@class="sdepartment"]/ul/li/text()')
             department = department[0] if len(department) > 0 else ''
         
-        # Graduate School & Degree
+        # GRAD SCHOOL & DEGREE
         
         # Determine which line represents highest education
         # PhDs may list there education reverse chronologically or chronologically
         education_first = facultyTree.xpath('//*[@id="template-page-content"]/div/div[2]/ul[1]/li[1]/text()')
         education_last = facultyTree.xpath('//*[@id="template-page-content"]/div/div[2]/ul[1]/li[last()]/text()')
 
-        # Default Answers if no data
+        # Initiate variables with default/null values
         highest_degree = None
         grad_school = None
         grad_school_department = ''
         grad_school_code = None
         grad_year = ''
         
-        # default to degree from name unless found in education
-        highest_degree = ','.join(fullTitle) || None
+        # Degree might be in the Fulltitle text extracted above 
+        highest_degree = ','.join(fullTitle) or None
         
-        # Most faculty use reverse chronology
+        # Parse education items for faculty member
+        # Most but not all faculty list education in reverse chronology
         # Check if highest degree is at bottom of list
         if len(education_first) > 0:
             if re.compile(r'(Ph.D.)').search(education_last[0]) is not None:
@@ -87,10 +107,10 @@ def getFacultyAPU(professors):
             else:
                 education_highest = education_first[0]
             
-            # Now split the string and parse for degree and school
+            # Split string and parse for degree and school
             # A few pages use dashes instead of commas to seperate degree. Replace with comma:
             education_highest = education_highest.replace('. - ', '. , ')
-            # Now split on comma to get main parts
+            # Split on comma to get main parts
             education_highest = [x.strip() for x in education_highest.split(',')]
             highest_degree = education_highest.pop(0) # Degree is always first
             highest_degree = highest_degree.split(' ')[0] # Take first degree title in case there are multiple
@@ -106,7 +126,7 @@ def getFacultyAPU(professors):
                 for school in schools:
                     if school['name'].split(',', 1)[0] in text:
                         grad_school = school['name']
-                        grad_school_code = school['id']
+                        grad_school_code = int(school['id'])
                 
                 # Otherwise try to extract the school name from the line
                 if grad_school == None:
@@ -122,7 +142,7 @@ def getFacultyAPU(professors):
                     # Assign the grad school if it was found
                     grad_school = temp_grad_school or None
         
-
+        # Insert into records only if degree and grad school were found
         if highest_degree != None and grad_school != None:
             professors.append([firstname, lastname, university, department, 
                                grad_school, grad_school_department, title, university_code,
@@ -147,45 +167,52 @@ def getFacultyGCU(professors):
     urls = map(lambda x: rootURL + x, links)
 
     # Go through each faculty page
-    for i, url in enumerate(urls):
+    for i, url in enumerate(urls[1:10]):
         facultyPage = requests.get(url)
         facultyTree = html.fromstring(facultyPage.text)
         
-        # Name
+        # FIRSTANAME, LASTNAME
         lastname, firstname = names[i].split(',')
 
-        # Title
+        # TITLE
         title = titles[i]
         
-        # University
+        # UNIVERSITY
         university = 'Georgian Court University'
         university_code = None
         
-        # Department
+        # DEPARTMENT
         department_text = facultyTree.xpath('//table[@class="tbl_staff_profile"]/tr/td[contains(., "Dept/School")]/text()[preceding-sibling::br]')
+        # Department section may or may not exist
         if len(department_text) > 0:
             department = department_text[0]
         else:
             break
 
-        # Grad School & Degree
+        # GRAD SCHOOL & DEGREE
         education_full = facultyTree.xpath('//*[@id="ctl00_ContentPlaceHolder1_ContentBlock1"]/div/ul[1]/li/text()')
         
+        # Initiate variables with default/null values
         education_phd = None
         highest_degree = None
         grad_school = None
         grad_school_department = ''
         grad_school_code = None
         
+        # Check for variations in spelling and style for doctorate degree
+        # Those without a doctorate will be ignored in order to exclude listed staff
+        # who are not professsors
         regexp = re.compile(r'Ph\.D\.|PhD|Doctor')
         for line in education_full:
             if regexp.search(line) is not None:
                 education_phd = line
                 break
         
+        # Use standard format for Ph.D degree
         if education_phd != None:
             highest_degree = 'Ph.D.'
             
+            # Check for year of graduating
             match_year = re.match('[0-9]{4}', education_phd)
             grad_year = match_year.group(0) if match_year else ''
             
@@ -193,28 +220,33 @@ def getFacultyGCU(professors):
             for school in schools:
                 if school['name'].split(',', 1)[0] in education_phd:
                     grad_school = school['name']
-                    grad_school_code = school['id']
+                    grad_school_code = int(school['id'])
             
             # Otherwise try to extract the school name from the line
             if grad_school == None:
                 match_school = re.match(',(\D*(University|College|School|Seminary|Institute).*)(?:,|\n)', education_phd)
                 grad_school = match_school.group(0) if match_school else None
         
+        # Insert into records only if degree and grad school were found
         if highest_degree != None and grad_school != None:
             professors.append([firstname, lastname, university, department, 
                                grad_school, grad_school_department, title, university_code,
                                grad_school_code, highest_degree, student, grad_year])
     return professors
 
+# Initiate sequence
 print 'Scraping faculty data...'
 professors = []
 getFacultyGCU(professors)
 getFacultyAPU(professors)
-print 'Done'
+print 'Complete'
 
+# Add column headers
 professors = pd.DataFrame(professors)
 professors.columns = ['firstname', 'lastname', 'university', 'department', 
                     'grad_school', 'grad_school_department', 'title', 'university_code',
                     'grad_school_code', 'highest_degree', 'student', 'grad_year']
 
+# Save to csv
 professors.to_csv('faculty.csv', encoding = 'utf-8', index=False)
+print 'Results saved in faculty.csv'
