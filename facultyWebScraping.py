@@ -9,22 +9,19 @@ This script scrapes faculty data from Azusa Pacific University (http://www.apu.e
 and Georgian Court University (http://www.georgian.edu/faculty/list.htm).
 
 Produces a CSV file with the following fields for each professor:
+            professors.append([firstname, lastname, grad_school, grad_school_code, highest_degree, grad_year,
+                               university, university_code, title, department])
     firstname 
     lastname 
-    university = current university
-    department = current department
     grad_school = university where he/she earned highest degree
-    grad_school_department = in which department degree was earned
-    title = title at current university (e.g. Assistant Professor)
-    university_code = identifier code for current university
     grad_school_code = identifier code for grad school university
     highest_degree = highest degree earned (e.g. Ph.D.)
-    student = student who collected the data (i.e. script author)
     grad_year = year that professor earned highest degree
+    university = current university
+    university_code = identifier code for current university
+    title = title at current university (e.g. Assistant Professor)
+    department = current department
 '''
-
-# STUDENT
-student = 'Mike Kelly'
 
 # Load schools data for reference and matching
 schools_file = csv.DictReader(open('schools.csv'))
@@ -35,7 +32,9 @@ for row in schools_file:
     schools.append({'id':school_id, 'name':school_name})
 
 
-def getFacultyAPU(professors):
+def getFacultyAPU():
+    professors = []
+
     # Faculty directory page
     rootURL = 'http://www.apu.edu'
     directoryPage = requests.get(rootURL + '/clas/faculty')
@@ -91,7 +90,6 @@ def getFacultyAPU(professors):
         # Initiate variables with default/null values
         highest_degree = None
         grad_school = None
-        grad_school_department = ''
         grad_school_code = None
         grad_year = ''
         
@@ -142,17 +140,16 @@ def getFacultyAPU(professors):
                     # Assign the grad school if it was found
                     grad_school = temp_grad_school or None
         
-        # Insert into records only if degree and grad school were found
-        if highest_degree != None and grad_school != None:
-            professors.append([firstname, lastname, university, department, 
-                               grad_school, grad_school_department, title, university_code,
-                               grad_school_code, highest_degree, student, grad_year])
+        # Insert into records
+        professors.append([firstname, lastname, grad_school, grad_school_code, highest_degree, grad_year,
+                            university, university_code, title, department])
     
     return professors
 
 
 
-def getFacultyGCU(professors):
+def getFacultyGCU():
+    professors = []
 
     # Faculty directory page
     rootURL = 'http://www.georgian.edu'
@@ -167,7 +164,7 @@ def getFacultyGCU(professors):
     urls = map(lambda x: rootURL + x, links)
 
     # Go through each faculty page
-    for i, url in enumerate(urls[1:10]):
+    for i, url in enumerate(urls):
         facultyPage = requests.get(url)
         facultyTree = html.fromstring(facultyPage.text)
         
@@ -196,22 +193,24 @@ def getFacultyGCU(professors):
         education_phd = None
         highest_degree = None
         grad_school = None
-        grad_school_department = ''
         grad_school_code = None
         
         # Check for variations in spelling and style for doctorate degree
         # Those without a doctorate will be ignored in order to exclude listed staff
         # who are not professsors
-        regexp = re.compile(r'Ph\.D\.|PhD|Doctor')
+        regexp_phd = re.compile(r'Ph\.D\.|PhD|Doctor|Ed\.D')
+        regexp_edd = re.compile(r'Ed\.D')
         for line in education_full:
-            if regexp.search(line) is not None:
+            if regexp_phd.search(line) is not None:
+                highest_degree = 'Ph.D.'
+                education_phd = line
+                break
+            elif regexp_edd.search(line) is not None:
+                highest_degree = 'Ed.D'
                 education_phd = line
                 break
         
-        # Use standard format for Ph.D degree
         if education_phd != None:
-            highest_degree = 'Ph.D.'
-            
             # Check for year of graduating
             match_year = re.match('[0-9]{4}', education_phd)
             grad_year = match_year.group(0) if match_year else ''
@@ -224,28 +223,23 @@ def getFacultyGCU(professors):
             
             # Otherwise try to extract the school name from the line
             if grad_school == None:
-                match_school = re.match(',(\D*(University|College|School|Seminary|Institute).*)(?:,|\n)', education_phd)
+                match_school = re.match('(?:,|^)(\D*(University|College|School|Seminary|Institute).*)(?:,|\n)', education_phd)
                 grad_school = match_school.group(0) if match_school else None
         
-        # Insert into records only if degree and grad school were found
-        if highest_degree != None and grad_school != None:
-            professors.append([firstname, lastname, university, department, 
-                               grad_school, grad_school_department, title, university_code,
-                               grad_school_code, highest_degree, student, grad_year])
+        # Insert into records
+        professors.append([firstname, lastname, grad_school, grad_school_code, highest_degree, grad_year,
+                           university, university_code, title, department])
     return professors
 
 # Initiate sequence
 print 'Scraping faculty data...'
-professors = []
-getFacultyGCU(professors)
-getFacultyAPU(professors)
+professors = getFacultyGCU() + getFacultyAPU()
 print 'Complete'
 
 # Add column headers
 professors = pd.DataFrame(professors)
-professors.columns = ['firstname', 'lastname', 'university', 'department', 
-                    'grad_school', 'grad_school_department', 'title', 'university_code',
-                    'grad_school_code', 'highest_degree', 'student', 'grad_year']
+professors.columns = ['firstname', 'lastname', 'grad_school', 'grad_school_code', 'highest_degree', 'grad_year',
+                      'university', 'university_code', 'title', 'department']
 
 # Save to csv
 professors.to_csv('faculty.csv', encoding = 'utf-8', index=False)
