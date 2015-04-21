@@ -5,8 +5,10 @@ import pandas as pd
 import csv
 
 '''
-This script scrapes faculty data from Azusa Pacific University (http://www.apu.edu/clas/faculty)
-and Georgian Court University (http://www.georgian.edu/faculty/list.htm).
+This script scrapes faculty data from:
+    Azusa Pacific University (http://www.apu.edu/clas/faculty)
+    Georgian Court University (http://www.georgian.edu/faculty/list.htm)
+    William & Mary University - Law School (http://law2.wm.edu/faculty/bios/fulltime/)
 
 Produces a CSV file with the following fields for each professor:
             professors.append([firstname, lastname, grad_school, grad_school_code, highest_degree, grad_year,
@@ -140,8 +142,9 @@ def getFacultyAPU():
                     # Assign the grad school if it was found
                     grad_school = temp_grad_school or None
         
-        # Insert into records
-        professors.append([firstname, lastname, grad_school, grad_school_code, highest_degree, grad_year,
+        # Insert into records only if degree and grad school were found
+        if highest_degree != None and grad_school != None:
+            professors.append([firstname, lastname, grad_school, grad_school_code, highest_degree, grad_year,
                             university, university_code, title, department])
     
     return professors
@@ -226,6 +229,54 @@ def getFacultyGCU():
                 match_school = re.match('(?:,|^)(\D*(University|College|School|Seminary|Institute).*)(?:,|\n)', education_phd)
                 grad_school = match_school.group(0) if match_school else None
         
+        # Insert into records only if degree and grad school were found
+        if highest_degree != None and grad_school != None:
+            professors.append([firstname, lastname, grad_school, grad_school_code, highest_degree, grad_year,
+                           university, university_code, title, department])
+    return professors
+
+def getFacultyWM():
+    professors = []
+
+    # Faculty directory page
+    rootURL = 'http://law2.wm.edu'
+    directoryPage = requests.get(rootURL + '/faculty/bios/fulltime/?svr=1')
+    directoryTree = html.fromstring(directoryPage.text)
+
+    # Get links to all professors (exclude deans)
+    urls = directoryTree.xpath('//*[@id="main"]/div/div[2]/div[@class="oneperson"]/div[2]/a/@href')
+    names = directoryTree.xpath('//*[@id="main"]/div/div[2]/div[@class="oneperson"]/div[2]/a/h5/text()')
+    
+    # Go through each faculty page
+    for i, url in enumerate(urls):
+        
+        # Deafult empty values
+        firstname, lastname, grad_school, grad_school_code = ['']*4
+        highest_degree, grad_year, university, university_code = ['']*4
+        title, department = ['']*2
+        
+        facultyPage = requests.get(url)
+        facultyTree = html.fromstring(facultyPage.text)
+        
+        # FIRSTANAME, LASTNAME
+        fullname = names[i].split(',')[0]
+        fullname = fullname.split()
+        firstname = fullname[0]
+        lastname = fullname[-1] 
+        
+        # UNIVERSITY
+        university = 'William & Mary University'
+        university_code = 359
+
+        # DEPARTMENT
+        department = 'Law School'
+        
+        # GRAD SCHOOL & DEGREE
+        education_full = facultyTree.xpath('//*[@id="main"]/div/div/div[1]/div[2]/div/text()[following-sibling::br][2]')
+        match = re.match('\: ([^,]+), ([^;]+);', education_full[0])
+        highest_degree = match.group(1)
+        university = match.group(2)
+        
         # Insert into records
         professors.append([firstname, lastname, grad_school, grad_school_code, highest_degree, grad_year,
                            university, university_code, title, department])
@@ -233,7 +284,7 @@ def getFacultyGCU():
 
 # Initiate sequence
 print 'Scraping faculty data...'
-professors = getFacultyGCU() + getFacultyAPU()
+professors = getFacultyGCU() + getFacultyAPU() + getFacultyWM()
 print 'Complete'
 
 # Add column headers
