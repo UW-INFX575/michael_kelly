@@ -173,6 +173,7 @@ def getFacultyGCU():
         
         # FIRSTANAME, LASTNAME
         lastname, firstname = names[i].split(',')
+        firstname.strip()
 
         # TITLE
         title = titles[i]
