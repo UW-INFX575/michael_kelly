@@ -14,6 +14,7 @@ ids = range(6334220, 6334230) # range of document IDs to fetch
 ids = [str(doc_id) for doc_id in ids]
 
 # Store contents of each document in dictionary
+print 'Retrieving patent documents from server'
 documents = {}
 for doc_id in ids:
     documents[doc_id] = requests.get(url + doc_id + '.txt').content
@@ -69,6 +70,7 @@ bigrams_agg = []
 trigrams_agg = []
 
 # Process each document
+print 'Creating ngram frequency count files'
 for doc_id, document in documents.items():
     # Remove punctuation, stop words, and stem
     words = stop_and_stem(document)
@@ -103,3 +105,5 @@ trigrams_agg = count_unique_ngrams(trigrams_agg)
 write_count_file('unigrams-combined', unigrams_agg)
 write_count_file('bigrams_combined', bigrams_agg)
 write_count_file('trigrams_combined', trigrams_agg)
+
+print 'Complete'
