@@ -6,10 +6,12 @@ import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import RegexpTokenizer
 from nltk.stem import PorterStemmer
+from scipy import cluster
 import textmining
 import sys
 import os
 import csv
+import matplotlib.pylab as plt
 
 def main():
 
@@ -24,6 +26,11 @@ def main():
 
 
 def jargon_distance_among_groups(groups, stopwords):
+    '''Calculates all combinations of jargon distance among a set of groups
+    Takes dict where key is group ID (int) and value is codebook for that group
+    Returns ndarray of jargon distances where row is writer group and 
+    column is reader group'''
+
     groups_freq = {}
     corpus_unigrams = []
 
@@ -39,11 +46,24 @@ def jargon_distance_among_groups(groups, stopwords):
     groups_codebooks = { group: get_codebook(group_freq, corpus_freq) for group, group_freq in groups_freq.iteritems() }
     groups_shannon = { group: shannon_entropy(codebook) for group, codebook in groups_codebooks.iteritems() }
 
+    matrix_size = len(groups_freq)
+    distance_matrix = np.zeros((matrix_size, matrix_size))
+    
     for wid in groups_freq:
         for rid in groups_freq:
             jargon_distance = 1 - (groups_shannon[wid] / cross_entropy(groups_codebooks[wid], groups_codebooks[rid]))
+            
+            r = wid - 1 # Use zero-based numbering for indexing matrix
+            c = rid - 1
+            distance_matrix[r, c] = jargon_distance
+
             print '%s, %s, %f' % (wid, rid, jargon_distance)
 
+    return distance_matrix
+
+
+def symmetrize(matrix):
+    return (matrix + matrix.T) / 2
 
 def stop_and_stem(document):
     '''Removes punctuation and stop words; reduces remaining words to stems
@@ -145,14 +165,13 @@ def get_codebook(group_ngram_freq, corpus_ngram_freq):
     corpus_total_count = float(sum(corpus_ngram_freq.itervalues()))
     
     corpus_prob_dist = { word: freq / corpus_total_count for word, freq in corpus_ngram_freq.iteritems() }
-
     
     # Use corpus probability * alpha as initial word probability
-    group_codebook = {k: v * alpha for k, v in corpus_prob_dist.items()}
+    group_codebook = { word: freq * alpha for word, freq in corpus_prob_dist.items() }
     
-    for k, v in group_ngram_freq.iteritems():
-        prob_dist_k = v / group_total_count
-        group_codebook[k] = (1 - alpha) * prob_dist_k + alpha * corpus_prob_dist[k]
+    for word, freq in group_ngram_freq.iteritems():
+        prob_dist_word = freq / group_total_count
+        group_codebook[word] = (1 - alpha) * prob_dist_word + alpha * corpus_prob_dist[word]
     
     return group_codebook
 
@@ -309,8 +328,8 @@ def jargon_distance_abstracts():
     with open('groups2.txt','r') as f:
         next(f) # skip headings
         reader=csv.reader(f, delimiter='\t')
-        for pid, group in reader:
-            group_assignments[pid] = group
+        for pid, gid in reader:
+            group_assignments[pid] = int(gid)
 
     with open('abstracts2.txt','r') as f:
         next(f) # skip headings
@@ -325,7 +344,16 @@ def jargon_distance_abstracts():
                     # create a new array in this slot
                     groups[gid] = [text]
 
-    jargon_distance_among_groups(groups, stopwords)
+    distances = jargon_distance_among_groups(groups, stopwords)
+    distances_symmetrized = symmetrize(distances)
+    distances_clustered = cluster.hierarchy.average(distances_symmetrized)
+    
+    fig = plt.figure(figsize=(8,8))
+    cluster.hierarchy.dendrogram(distances_clustered)
+    plt.title('Jargon Clustering')
+    plt.ylabel('Distance (Jargon Barrier)')
+    plt.xlabel('Group ID')
+    fig.savefig('dendrogram.png')
 
 
 main()
