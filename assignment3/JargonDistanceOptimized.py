@@ -7,18 +7,17 @@ from nltk.corpus import stopwords
 from nltk.tokenize import RegexpTokenizer
 from nltk.stem import PorterStemmer
 import textmining
-from collections import Counter
 import sys
 import os
 import csv
 
 def main():
 
-    print 'Jargon Distance on Two Groups of Silly Sentences'
-    print '%f Cultural Hole\n' % jargon_distance_on_toy_data()
+    # print 'Jargon Distance on Two Groups of Silly Sentences'
+    # print '%f Cultural Hole\n' % jargon_distance_on_toy_data()
     
-    print 'Jargon Distance between Documents on Cats and Hipsters'
-    print '%f Cultural Hole\n' % jargon_distance_cats_hipsters()
+    # print 'Jargon Distance between Documents on Cats and Hipsters'
+    # print '%f Cultural Hole\n' % jargon_distance_cats_hipsters()
 
     print 'Jargon Distance between Groups of Abstracts'
     jargon_distance_abstracts()
@@ -37,12 +36,12 @@ def jargon_distance_among_groups(groups, stopwords):
 
     corpus_freq = ngram_freq(corpus_unigrams)
 
+    groups_codebooks = { group: get_codebook(group_freq, corpus_freq) for group, group_freq in groups_freq.iteritems() }
+    groups_shannon = { group: shannon_entropy(codebook) for group, codebook in groups_codebooks.iteritems() }
+
     for wid in groups_freq:
         for rid in groups_freq:
-            writer_codebook = get_codebook(groups_freq[wid], corpus_freq)
-            reader_codebook = get_codebook(groups_freq[rid], corpus_freq)
-            jargon_distance = get_jargon_distance(writer_codebook, reader_codebook)
-
+            jargon_distance = 1 - (groups_shannon[wid] / cross_entropy(groups_codebooks[wid], groups_codebooks[rid]))
             print '%s, %s, %f' % (wid, rid, jargon_distance)
 
 
@@ -127,12 +126,9 @@ def run_LDA(term_document_matrix, term_list, topics=20):
 def ngram_freq(ngram_list):
     '''Counts the unique occurences of ngrams in a list
     Takes a set of ngrams (list of strings or tuples)
-    Returns a sorted list of tuples with frequency count.
-    e.g. [('Hey', 'friend')...] --> [(('Hey', 'friend'), 4)...]'''
+    Returns a list of tuples with frequency count.'''
     
-    freq = nltk.FreqDist(ngram_list).items()
-    freq = sorted(freq, key=lambda tup: tup[-1], reverse=True)
-    return freq
+    return nltk.FreqDist(ngram_list).items()
 
 
 def get_codebook(group_ngram_freq, corpus_ngram_freq):
@@ -143,24 +139,19 @@ def get_codebook(group_ngram_freq, corpus_ngram_freq):
     alpha = 0.01
 
     group_ngram_freq = dict(group_ngram_freq)
-    group_ngram_freq = Counter(group_ngram_freq)
-
     corpus_ngram_freq = dict(corpus_ngram_freq)
-    corpus_ngram_freq = Counter(corpus_ngram_freq)
 
-    group_total_count = sum(group_ngram_freq.itervalues())
-    corpus_total_count = sum(corpus_ngram_freq.itervalues())
+    group_total_count = float(sum(group_ngram_freq.itervalues()))
+    corpus_total_count = float(sum(corpus_ngram_freq.itervalues()))
     
-    corpus_prob_dist = {}    
-    
-    for k, v in corpus_ngram_freq.iteritems():
-        corpus_prob_dist[k] = float(v) / corpus_total_count
+    corpus_prob_dist = { word: freq / corpus_total_count for word, freq in corpus_ngram_freq.iteritems() }
+
     
     # Use corpus probability * alpha as initial word probability
     group_codebook = {k: v * alpha for k, v in corpus_prob_dist.items()}
     
     for k, v in group_ngram_freq.iteritems():
-        prob_dist_k = float(v) / group_total_count
+        prob_dist_k = v / group_total_count
         group_codebook[k] = (1 - alpha) * prob_dist_k + alpha * corpus_prob_dist[k]
     
     return group_codebook
@@ -189,12 +180,12 @@ def cross_entropy(prob_dist1, prob_dist2):
     return cross_entropy
 
 
-def get_jargon_distance(group_codebook, field2_codebook):
+def get_jargon_distance(writer_codebook, reader_codebook):
     '''Computes the jargon distance between two fields
     Takes two dicts: a probability distribution codebook for field 1 and 2
     Returns a float: the cultural hole or communication inefffiency between fields'''
     
-    efficiency = shannon_entropy(group_codebook) / cross_entropy(group_codebook, field2_codebook)
+    efficiency = shannon_entropy(writer_codebook) / cross_entropy(writer_codebook, reader_codebook)
     cultural_hole = 1 - efficiency
     
     return cultural_hole
@@ -296,6 +287,7 @@ def jargon_distance_cats_hipsters():
     
     return get_jargon_distance(field1_codebook, field2_codebook)
 
+
 def jargon_distance_abstracts():
     stopwords = ['all','just','being','over','both','through','yourselves','its',
                  'before','herself','had','should','to','only','under','ours','has',
@@ -314,21 +306,22 @@ def jargon_distance_abstracts():
     groups = {}
     group_assignments = {}
 
-    with open('groups.txt','r') as f:
+    with open('groups2.txt','r') as f:
         next(f) # skip headings
         reader=csv.reader(f, delimiter='\t')
         for pid, group in reader:
             group_assignments[pid] = group
 
-    with open('abstracts.txt','r') as f:
+    with open('abstracts2.txt','r') as f:
+        next(f) # skip headings
         reader=csv.reader(f, delimiter='\t')
         for pid, text in reader:
             gid = group_assignments[pid]
             if text != 'null':
-                if gid in groups:
+                try:
                     # append the new number to the existing array at this slot
                     groups[gid].append(text)
-                else:
+                except KeyError:
                     # create a new array in this slot
                     groups[gid] = [text]
 
