@@ -8,48 +8,44 @@ from nltk.tokenize import RegexpTokenizer
 from nltk.stem import PorterStemmer
 import textmining
 from collections import Counter
-import sys, os
+import sys
+import os
 import csv
 
 def main():
-    stopwords = ["all","just","being","over","both","through","yourselves","its",
-                 "before","herself","had","should","to","only","under","ours","has",
-                 "do","them","his","very","they","not","during","now","him","nor",
-                 "did","this","she","each","further","where","few","because","doing",
-                 "some","are","our","ourselves","out","what","for","while","does","above",
-                 "between","t","be","we","who","were","here","hers","by","on","about","of",
-                 "against","s","or","own","into","yourself","down","your","from","her",
-                 "their","there","been","whom","too","themselves","was","until","more",
-                 "himself","that","but","don","with","than","those","he","me","myself",
-                 "these","up","will","below","can","theirs","my","and","then","is","am",
-                 "it","an","as","itself","at","have","in","any","if","again","no","when",
-                 "same","how","other","which","you","after","most","such","why","a","off",
-                 "i","yours","so","the","having","once"]
 
-    groups = {}
-
-    groupAssignments = {}
-    with open('groups.txt','r') as f:
-        next(f) # skip headings
-        reader=csv.reader(f,delimiter='\t')
-        for pid, group in reader:
-            groupAssignments[pid] = group
-
-    with open('abstracts.txt','r') as f:
-        reader=csv.reader(f,delimiter='\t')
-        for pid, text in reader:
-            groupID = groupAssignments[pid]
-            if text != 'null':
-                if groupID in groups:
-                    # append the new number to the existing array at this slot
-                    groups[groupID].append(text)
-                else:
-                    # create a new array in this slot
-                    groups[groupID] = [text]
-
-    jargon_distance_among_groups(groups, stopwords)
-
+    print 'Jargon Distance on Two Groups of Silly Sentences'
+    print '%f Cultural Hole\n' % jargon_distance_on_toy_data()
     
+    print 'Jargon Distance between Documents on Cats and Hipsters'
+    print '%f Cultural Hole\n' % jargon_distance_cats_hipsters()
+
+    print 'Jargon Distance between Groups of Abstracts'
+    jargon_distance_abstracts()
+
+
+def jargon_distance_among_groups(groups, stopwords):
+    groups_freq = {}
+    corpus_unigrams = []
+
+    for gid in groups:
+        group_string = ' '.join(groups[gid])
+        group_unigrams = stop_custom_list(group_string, stopwords)
+        corpus_unigrams += group_unigrams
+
+        groups_freq[gid] = ngram_freq(group_unigrams)
+
+    corpus_freq = ngram_freq(corpus_unigrams)
+
+    for wid in groups_freq:
+        for rid in groups_freq:
+            writer_codebook = get_codebook(groups_freq[wid], corpus_freq)
+            reader_codebook = get_codebook(groups_freq[rid], corpus_freq)
+            jargon_distance = get_jargon_distance(writer_codebook, reader_codebook)
+
+            print '%s, %s, %f' % (wid, rid, jargon_distance)
+
+
 def stop_and_stem(document):
     '''Removes punctuation and stop words; reduces remaining words to stems
     Takes a document (string)
@@ -69,9 +65,10 @@ def stop_and_stem(document):
     
     return words
 
+
 def stop_custom_list(document, stoplist):
     '''Removes stop words from list
-    Takes a document (string)
+    Takes a document (string) and list of stopwords (list of strings)
     Returns words (list of strings)'''
     
     document = document.split(' ')
@@ -138,45 +135,35 @@ def ngram_freq(ngram_list):
     return freq
 
 
-def get_codebooks(group_ngram_freq, corpus_ngram_freq):
-    '''Produces codebooks, or phrase frequency distributions, for two fields
-    Takes two lists of tuples (ngrams with frequency count)
-    Returns tuple of two dicts: a probability distribution codebook for each field'''
+def get_codebook(group_ngram_freq, corpus_ngram_freq):
+    '''Produces a codebook, or phrase frequency distributions, for a group
+    Takes two lists of tuples (ngrams with frequency), for group and for corpus
+    Returns dict: a probability distribution codebook for the group'''
     
     alpha = 0.01
 
     group_ngram_freq = dict(group_ngram_freq)
     group_ngram_freq = Counter(group_ngram_freq)
-    
+
     corpus_ngram_freq = dict(corpus_ngram_freq)
     corpus_ngram_freq = Counter(corpus_ngram_freq)
-    
-    corpus_ngram_freq = group_ngram_freq + corpus_ngram_freq
-    
+
     group_total_count = sum(group_ngram_freq.itervalues())
-    field2_total_count = sum(corpus_ngram_freq.itervalues())
     corpus_total_count = sum(corpus_ngram_freq.itervalues())
     
-    group_prob_dist = {}
-    field2_prob_dist = {}
-    corpus_prob_dist = {}
+    corpus_prob_dist = {}    
     
     for k, v in corpus_ngram_freq.iteritems():
         corpus_prob_dist[k] = float(v) / corpus_total_count
     
     # Use corpus probability * alpha as initial word probability
     group_codebook = {k: v * alpha for k, v in corpus_prob_dist.items()}
-    field2_codebook = {k: v * alpha for k, v in corpus_prob_dist.items()}
     
     for k, v in group_ngram_freq.iteritems():
         prob_dist_k = float(v) / group_total_count
         group_codebook[k] = (1 - alpha) * prob_dist_k + alpha * corpus_prob_dist[k]
-        
-    for k, v in corpus_ngram_freq.iteritems():
-        prob_dist_k = float(v) / field2_total_count
-        field2_codebook[k] = (1 - alpha) * prob_dist_k + alpha * corpus_prob_dist[k]
     
-    return (group_codebook, field2_codebook)
+    return group_codebook
 
 
 def shannon_entropy(prob_dist):
@@ -185,7 +172,7 @@ def shannon_entropy(prob_dist):
     Returns a float: the entropy / efficiency of jargon within field'''
     
     shannon_entropy = -sum([x * np.log2(x) for x in prob_dist.itervalues()])
-    print '%f Shannon Entropy' % shannon_entropy
+    #print '%f Shannon Entropy' % shannon_entropy
     return shannon_entropy
 
 
@@ -202,7 +189,7 @@ def cross_entropy(prob_dist1, prob_dist2):
     return cross_entropy
 
 
-def jargon_distance(group_codebook, field2_codebook):
+def get_jargon_distance(group_codebook, field2_codebook):
     '''Computes the jargon distance between two fields
     Takes two dicts: a probability distribution codebook for field 1 and 2
     Returns a float: the cultural hole or communication inefffiency between fields'''
@@ -211,7 +198,7 @@ def jargon_distance(group_codebook, field2_codebook):
     cultural_hole = 1 - efficiency
     
     return cultural_hole
-    
+
     
 def LDA_on_patent_data():
     '''Fetches patent documents from server and performs LDA using unigrams'''
@@ -254,27 +241,30 @@ def LDA_on_toy_data():
 def jargon_distance_on_toy_data():
     '''Computes jargon distance between 2 groups consisting of 5 simple sentences'''
     
-    group = ['Chinchillas and kittens are cute.', 
+    field1 = ['Chinchillas and kittens are cute.', 
               'My sister adopted a kitten yesterday.',
               'Look at this cute hamster munching on a piece of broccoli.']
     field2 = ['I like to eat broccoli and bananas.', 
               'I ate a banana and spinach smoothie for breakfast.']
     
-    group_in_unigrams = []
-    for document in group:
-        group_in_unigrams += stop_and_stem(document)
+    field1_unigrams = []
+    for document in field1:
+        field1_unigrams += stop_and_stem(document)
 
-    field2_in_unigrams = []
+    field2_unigrams = []
     for document in field2:
-        field2_in_unigrams += stop_and_stem(document)
+        field2_unigrams += stop_and_stem(document)
     
-    group_unigram_freq = ngram_freq(group_in_unigrams)
-    field2_unigram_freq = ngram_freq(field2_in_unigrams)
+    corpus_unigrams = field1_unigrams + field2_unigrams
 
-    group_codebook, field2_codebook = get_codebooks(group_unigram_freq, 
-                                                     field2_unigram_freq)
+    field1_freq = ngram_freq(field1_unigrams)
+    field2_freq = ngram_freq(field2_unigrams)
+    corpus_freq = ngram_freq(corpus_unigrams)
+
+    field1_codebook = get_codebook(field1_freq, corpus_freq)
+    field2_codebook = get_codebook(field2_freq, corpus_freq)
     
-    return jargon_distance(group_codebook, field2_codebook)
+    return get_jargon_distance(field1_codebook, field2_codebook)
 
 
 def jargon_distance_cats_hipsters():
@@ -284,74 +274,65 @@ def jargon_distance_cats_hipsters():
     documents = []
     filenames = ['cats1.txt','cats2.txt','cats3.txt', 'hipsum1.txt', 'hipsum2.txt']
     for filename in filenames:
-        with open(filename, "r") as myfile:
+        with open(filename, 'r') as myfile:
             documents.append(myfile.read().replace('\n', ''))
     
-    group_in_unigrams = []
+    field1_unigrams = []
     for document in documents[:3]:
-        group_in_unigrams += stop_and_stem(document)
+        field1_unigrams += stop_and_stem(document)
 
-    field2_in_unigrams = []
+    field2_unigrams = []
     for document in documents[3:]:
-        field2_in_unigrams += stop_and_stem(document)
+        field2_unigrams += stop_and_stem(document)
+
+    corpus_unigrams = field1_unigrams + field2_unigrams
     
-    group_unigram_freq = ngram_freq(group_in_unigrams)
-    field2_unigram_freq = ngram_freq(field2_in_unigrams)
+    field1_freq = ngram_freq(field1_unigrams)
+    field2_freq = ngram_freq(field2_unigrams)
+    corpus_freq = ngram_freq(corpus_unigrams)
 
-    group_codebook, field2_codebook = get_codebooks(group_unigram_freq, 
-                                                     field2_unigram_freq)
+    field1_codebook = get_codebook(field1_freq, corpus_freq)
+    field2_codebook = get_codebook(field2_freq, corpus_freq)
     
-    return jargon_distance(group_codebook, field2_codebook)
+    return get_jargon_distance(field1_codebook, field2_codebook)
 
+def jargon_distance_abstracts():
+    stopwords = ['all','just','being','over','both','through','yourselves','its',
+                 'before','herself','had','should','to','only','under','ours','has',
+                 'do','them','his','very','they','not','during','now','him','nor',
+                 'did','this','she','each','further','where','few','because','doing',
+                 'some','are','our','ourselves','out','what','for','while','does','above',
+                 'between','t','be','we','who','were','here','hers','by','on','about','of',
+                 'against','s','or','own','into','yourself','down','your','from','her',
+                 'their','there','been','whom','too','themselves','was','until','more',
+                 'himself','that','but','don','with','than','those','he','me','myself',
+                 'these','up','will','below','can','theirs','my','and','then','is','am',
+                 'it','an','as','itself','at','have','in','any','if','again','no','when',
+                 'same','how','other','which','you','after','most','such','why','a','off',
+                 'i','yours','so','the','having','once']
 
-def jargon_distance_cats_cats():
-    '''Computes jargon distance between 2 groups of generated text:
-    both of the same theme! Distance should be small since the groups
-    have the same theme with shared words.'''
-    
-    documents = []
-    filenames = ['cats1.txt','cats2.txt']
-    for filename in filenames:
-        with open(filename, "r") as myfile:
-            documents.append(myfile.read().replace('\n', ''))
-    
-    group_in_unigrams = []
-    for document in documents[:1]:
-        group_in_unigrams += stop_and_stem(document)
+    groups = {}
+    group_assignments = {}
 
-    field2_in_unigrams = []
-    for document in documents[1:]:
-        field2_in_unigrams += stop_and_stem(document)
-    
-    group_unigram_freq = ngram_freq(group_in_unigrams)
-    field2_unigram_freq = ngram_freq(field2_in_unigrams)
+    with open('groups.txt','r') as f:
+        next(f) # skip headings
+        reader=csv.reader(f, delimiter='\t')
+        for pid, group in reader:
+            group_assignments[pid] = group
 
-    group_codebook, field2_codebook = get_codebooks(group_unigram_freq, 
-                                                     field2_unigram_freq)
-    
-    return jargon_distance(group_codebook, field2_codebook)
+    with open('abstracts.txt','r') as f:
+        reader=csv.reader(f, delimiter='\t')
+        for pid, text in reader:
+            gid = group_assignments[pid]
+            if text != 'null':
+                if gid in groups:
+                    # append the new number to the existing array at this slot
+                    groups[gid].append(text)
+                else:
+                    # create a new array in this slot
+                    groups[gid] = [text]
 
-
-def jargon_distance_among_groups(groups, stopwords):
-    
-    for group_groupID in groups:
-        for field2_groupID in groups:
-
-            group_in_unigrams = []
-            for document in groups[group_groupID]:
-                group_in_unigrams += stop_custom_list(document, stopwords)
-
-            field2_in_unigrams = []
-            for document in groups[field2_groupID]:
-                field2_in_unigrams += stop_custom_list(document, stopwords)
-
-            group_unigram_freq = ngram_freq(group_in_unigrams)
-            field2_unigram_freq = ngram_freq(field2_in_unigrams)
-
-            group_codebook, field2_codebook = get_codebooks(group_unigram_freq, 
-                                                         field2_unigram_freq)
-
-            print '%s, %s, %f' % (group_groupID, field2_groupID, jargon_distance(group_codebook, field2_codebook))
+    jargon_distance_among_groups(groups, stopwords)
 
 
 main()
