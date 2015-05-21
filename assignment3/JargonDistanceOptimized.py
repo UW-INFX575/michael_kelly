@@ -43,14 +43,17 @@ def jargon_distance_among_groups(groups, stopwords):
 
     corpus_freq = ngram_freq(corpus_unigrams)
 
+    # Calculate the Codebook and Shannon entropy once for each group
     groups_codebooks = { group: get_codebook(group_freq, corpus_freq) for group, group_freq in groups_freq.iteritems() }
     groups_shannon = { group: shannon_entropy(codebook) for group, codebook in groups_codebooks.iteritems() }
 
     matrix_size = len(groups_freq)
     distance_matrix = np.zeros((matrix_size, matrix_size))
     
+    # Calculate jargon distance for every writer to reader combination
     for wid in groups_freq:
         for rid in groups_freq:
+            # Cross entropy must be calculated for each writer to reader pair
             jargon_distance = 1 - (groups_shannon[wid] / cross_entropy(groups_codebooks[wid], groups_codebooks[rid]))
             
             r = wid - 1 # Use zero-based numbering for indexing matrix
@@ -63,6 +66,10 @@ def jargon_distance_among_groups(groups, stopwords):
 
 
 def symmetrize(matrix):
+    '''Makes a matrix symmetrical by averaging the diagonal differences: 
+    a particular row to column value becomes equal to column to row value
+    Takes a matric (ndarray)
+    Returns a matrix (ndarray)'''
     return (matrix + matrix.T) / 2
 
 def stop_and_stem(document):
@@ -156,7 +163,7 @@ def get_codebook(group_ngram_freq, corpus_ngram_freq):
     Takes two lists of tuples (ngrams with frequency), for group and for corpus
     Returns dict: a probability distribution codebook for the group'''
     
-    alpha = 0.01
+    alpha = 0.01 # Fudge factor for the Jargon Distance formula
 
     group_ngram_freq = dict(group_ngram_freq)
     corpus_ngram_freq = dict(corpus_ngram_freq)
@@ -169,6 +176,7 @@ def get_codebook(group_ngram_freq, corpus_ngram_freq):
     # Use corpus probability * alpha as initial word probability
     group_codebook = { word: freq * alpha for word, freq in corpus_prob_dist.items() }
     
+    # For words that do exist in the group, set value to the group probabality
     for word, freq in group_ngram_freq.iteritems():
         prob_dist_word = freq / group_total_count
         group_codebook[word] = (1 - alpha) * prob_dist_word + alpha * corpus_prob_dist[word]
@@ -348,12 +356,25 @@ def jargon_distance_abstracts():
     distances_symmetrized = symmetrize(distances)
     distances_clustered = cluster.hierarchy.average(distances_symmetrized)
     
-    fig = plt.figure(figsize=(8,8))
-    cluster.hierarchy.dendrogram(distances_clustered)
+    fieldNames = ['Ecology and Evolution',
+                  'Molecular and Cell Biology',
+                  'Economics',
+                  'Sociology',
+                  'Probability and Statistics',
+                  'Organizational and marketing',
+                  'Law',
+                  'Anthropology',
+                  'Political Science',
+                  'Education']
+
+    fig = plt.figure(figsize=(8,6))
+    cluster.hierarchy.dendrogram(distances_clustered, orientation='right',
+                                                      labels=fieldNames,
+                                                      leaf_font_size=8)
     plt.title('Jargon Clustering')
-    plt.ylabel('Distance (Jargon Barrier)')
-    plt.xlabel('Group ID')
-    fig.savefig('dendrogram.png')
+    plt.xlabel('Distance (Jargon Barrier)')
+    plt.ylabel('Academic Group')
+    fig.savefig('dendrogram.png', bbox_inches='tight')
 
 
 main()
